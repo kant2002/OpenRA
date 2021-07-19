@@ -29,28 +29,31 @@ namespace OpenRA
 		readonly Cache<Type, ConstructorInfo> ctorCache;
 		readonly (Assembly Assembly, string Namespace)[] assemblies;
 
-		public ObjectCreator(Manifest manifest, InstalledMods mods)
+		public ObjectCreator(Manifest manifest, InstalledMods mods, IList<Assembly> assemblyList = null)
 		{
 			typeCache = new Cache<string, Type>(FindType);
 			ctorCache = new Cache<Type, ConstructorInfo>(GetCtor);
 
-			// Allow mods to load types from the core Game assembly, and any additional assemblies they specify.
-			// Assemblies can only be loaded from directories to avoid circular dependencies on package loaders.
-			var assemblyList = new List<Assembly>() { typeof(Game).Assembly };
-			foreach (var path in manifest.Assemblies)
+			if (assemblyList == null)
 			{
-				var resolvedPath = FileSystem.FileSystem.ResolveAssemblyPath(path, manifest, mods);
-				if (resolvedPath == null)
-					throw new FileNotFoundException($"Assembly `{path}` not found.");
+				// Allow mods to load types from the core Game assembly, and any additional assemblies they specify.
+				// Assemblies can only be loaded from directories to avoid circular dependencies on package loaders.
+				assemblyList = new List<Assembly>() { typeof(Game).Assembly };
+				foreach (var path in manifest.Assemblies)
+				{
+					var resolvedPath = FileSystem.FileSystem.ResolveAssemblyPath(path, manifest, mods);
+					if (resolvedPath == null)
+						throw new FileNotFoundException($"Assembly `{path}` not found.");
 
-				LoadAssembly(assemblyList, resolvedPath);
+					LoadAssembly(assemblyList, resolvedPath);
+				}
 			}
 
 			AppDomain.CurrentDomain.AssemblyResolve += ResolveAssembly;
 			assemblies = assemblyList.SelectMany(asm => asm.GetNamespaces().Select(ns => (asm, ns))).ToArray();
 		}
 
-		void LoadAssembly(List<Assembly> assemblyList, string resolvedPath)
+		void LoadAssembly(IList<Assembly> assemblyList, string resolvedPath)
 		{
 			// .NET doesn't provide any way of querying the metadata of an assembly without either:
 			//   (a) loading duplicate data into the application domain, breaking the world.

@@ -23,6 +23,15 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OpenRA.Launcher", "OpenRA.L
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OpenRA.WindowsLauncher", "OpenRA.WindowsLauncher\OpenRA.WindowsLauncher.csproj", "{912B578E-0BC0-4987-807B-1E294A87DA37}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OpenRA.Server.D2k", "OpenRA.Server.D2k\OpenRA.Server.D2k.csproj", "{D4DA8220-CD5B-47EE-B18A-AA68519AB65F}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{CD8D27C8-01B4-4236-B129-210ACB650453}"
+	ProjectSection(SolutionItems) = preProject
+		nuget.config = nuget.config
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenRA.Launcher.D2k", "OpenRA.Launcher.D2k\OpenRA.Launcher.D2k.csproj", "{D1019468-C0D4-4D66-822D-F08B7FB20550}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -65,6 +74,14 @@ Global
 		{54DAE0E0-3125-49D3-992E-A0E931EB5FC8}.Release|Any CPU.Build.0 = Release|Any CPU
 		{912B578E-0BC0-4987-807B-1E294A87DA37}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{912B578E-0BC0-4987-807B-1E294A87DA37}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4DA8220-CD5B-47EE-B18A-AA68519AB65F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4DA8220-CD5B-47EE-B18A-AA68519AB65F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4DA8220-CD5B-47EE-B18A-AA68519AB65F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4DA8220-CD5B-47EE-B18A-AA68519AB65F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D1019468-C0D4-4D66-822D-F08B7FB20550}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D1019468-C0D4-4D66-822D-F08B7FB20550}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D1019468-C0D4-4D66-822D-F08B7FB20550}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D1019468-C0D4-4D66-822D-F08B7FB20550}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

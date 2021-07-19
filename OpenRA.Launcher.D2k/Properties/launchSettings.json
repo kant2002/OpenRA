@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Dune 2000": {
+      "commandName": "Project",
+      "commandLineArgs": "Engine.EngineDir=\"..\" Game.Mod=d2k"
+    }
+  }
+}

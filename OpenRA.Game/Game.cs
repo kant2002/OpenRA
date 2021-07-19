@@ -277,6 +277,15 @@ namespace OpenRA
 			return Run();
 		}
 
+		public static RunStatus InitializeAndRun(string[] args, IPlatform platform, IList<Assembly> assemblies)
+		{
+			Initialize(new Arguments(args), platform, assemblies);
+
+			// Proactively collect memory during loading to reduce peak memory.
+			GC.Collect();
+			return Run();
+		}
+
 		static void Initialize(Arguments args)
 		{
 			var engineDirArg = args.GetValue("Engine.EngineDir", null);
@@ -323,44 +332,27 @@ namespace OpenRA
 			Log.AddChannel("nat", "nat.log");
 			Log.AddChannel("client", "client.log");
 
-			var platforms = new[] { Settings.Game.Platform, "Default", null };
-			foreach (var p in platforms)
+			var platformSearch = GetPlatform();
+			if (platformSearch.PlatformName == null)
 			{
-				if (p == null)
-					throw new InvalidOperationException("Failed to initialize platform-integration library. Check graphics.log for details.");
+				throw new InvalidOperationException("Failed to initialize platform-integration library. Check graphics.log for details.");
+			}
 
-				Settings.Game.Platform = p;
-				try
-				{
-					var rendererPath = Path.Combine(Platform.BinDir, "OpenRA.Platforms." + p + ".dll");
+			try
+			{
+				Settings.Game.Platform = platformSearch.PlatformName;
+				var platform = platformSearch.Platform;
+				Renderer = new Renderer(platform, Settings.Graphics);
+				Sound = new Sound(platform, Settings.Sound);
+			}
+			catch (Exception e)
+			{
+				Log.Write("graphics", "{0}", e);
+				Console.WriteLine("Renderer initialization failed. Check graphics.log for details.");
 
-#if !MONO
-					var loader = new AssemblyLoader(rendererPath);
-					var platformType = loader.LoadDefaultAssembly().GetTypes().SingleOrDefault(t => typeof(IPlatform).IsAssignableFrom(t));
+				Renderer?.Dispose();
 
-#else
-					var assembly = Assembly.LoadFile(rendererPath);
-					var platformType = assembly.GetTypes().SingleOrDefault(t => typeof(IPlatform).IsAssignableFrom(t));
-#endif
-
-					if (platformType == null)
-						throw new InvalidOperationException("Platform dll must include exactly one IPlatform implementation.");
-
-					var platform = (IPlatform)platformType.GetConstructor(Type.EmptyTypes).Invoke(null);
-					Renderer = new Renderer(platform, Settings.Graphics);
-					Sound = new Sound(platform, Settings.Sound);
-
-					break;
-				}
-				catch (Exception e)
-				{
-					Log.Write("graphics", "{0}", e);
-					Console.WriteLine("Renderer initialization failed. Check graphics.log for details.");
-
-					Renderer?.Dispose();
-
-					Sound?.Dispose();
-				}
+				Sound?.Dispose();
 			}
 
 			Nat.Initialize();
@@ -412,29 +404,158 @@ namespace OpenRA
 			Ui.InitializeTranslation();
 		}
 
-		public static void InitializeMod(string mod, Arguments args)
+		static void Initialize(Arguments args, IPlatform platform, IList<Assembly> assemblies)
 		{
-			// Clear static state if we have switched mods
-			LobbyInfoChanged = () => { };
-			ConnectionStateChanged = (om, p, conn) => { };
-			BeforeGameStart = () => { };
-			OnRemoteDirectConnect = endpoint => { };
-			delayedActions = new ActionQueue();
+			var engineDirArg = args.GetValue("Engine.EngineDir", null);
+			if (!string.IsNullOrEmpty(engineDirArg))
+				Platform.OverrideEngineDir(engineDirArg);
 
-			Ui.ResetAll();
+			var supportDirArg = args.GetValue("Engine.SupportDir", null);
+			if (!string.IsNullOrEmpty(supportDirArg))
+				Platform.OverrideSupportDir(supportDirArg);
 
-			worldRenderer?.Dispose();
-			worldRenderer = null;
-			server?.Shutdown();
-			OrderManager?.Dispose();
+			Console.WriteLine("Platform is {0}", Platform.CurrentPlatform);
 
-			if (ModData != null)
+			// Load the engine version as early as possible so it can be written to exception logs
+			try
 			{
-				ModData.ModFiles.UnmountAll();
-				ModData.Dispose();
+				EngineVersion = File.ReadAllText(Path.Combine(Platform.EngineDir, "VERSION")).Trim();
+			}
+			catch { }
+
+			if (string.IsNullOrEmpty(EngineVersion))
+				EngineVersion = "Unknown";
+
+			Console.WriteLine("Engine version is {0}", EngineVersion);
+			Console.WriteLine("Runtime: {0}", Platform.RuntimeVersion);
+
+			// Special case handling of Game.Mod argument: if it matches a real filesystem path
+			// then we use this to override the mod search path, and replace it with the mod id
+			var modID = args.GetValue("Game.Mod", null);
+			var explicitModPaths = new string[0];
+			if (modID != null && (File.Exists(modID) || Directory.Exists(modID)))
+			{
+				explicitModPaths = new[] { modID };
+				modID = Path.GetFileNameWithoutExtension(modID);
 			}
 
-			ModData = null;
+			InitializeSettings(args);
+
+			Log.AddChannel("perf", "perf.log");
+			Log.AddChannel("debug", "debug.log");
+			Log.AddChannel("server", "server.log", true);
+			Log.AddChannel("sound", "sound.log");
+			Log.AddChannel("graphics", "graphics.log");
+			Log.AddChannel("geoip", "geoip.log");
+			Log.AddChannel("nat", "nat.log");
+			Log.AddChannel("client", "client.log");
+
+			try
+			{
+				Settings.Game.Platform = platform.GetType().Name;
+				Renderer = new Renderer(platform, Settings.Graphics);
+				Sound = new Sound(platform, Settings.Sound);
+			}
+			catch (Exception e)
+			{
+				Log.Write("graphics", "{0}", e);
+				Console.WriteLine("Renderer initialization failed. Check graphics.log for details.");
+
+				Renderer?.Dispose();
+
+				Sound?.Dispose();
+			}
+
+			Nat.Initialize();
+
+			var modSearchArg = args.GetValue("Engine.ModSearchPaths", null);
+			var modSearchPaths = modSearchArg != null ?
+				FieldLoader.GetValue<string[]>("Engine.ModsPath", modSearchArg) :
+				new[] { Path.Combine(Platform.EngineDir, "mods") };
+
+			Mods = new InstalledMods(modSearchPaths, explicitModPaths);
+			Console.WriteLine("Internal mods:");
+			foreach (var mod in Mods)
+				Console.WriteLine("\t{0}: {1} ({2})", mod.Key, mod.Value.Metadata.Title, mod.Value.Metadata.Version);
+
+			modLaunchWrapper = args.GetValue("Engine.LaunchWrapper", null);
+
+			ExternalMods = new ExternalMods();
+
+			if (modID != null && Mods.TryGetValue(modID, out _))
+			{
+				var launchPath = args.GetValue("Engine.LaunchPath", null);
+				var launchArgs = new List<string>();
+
+				// Sanitize input from platform-specific launchers
+				// Process.Start requires paths to not be quoted, even if they contain spaces
+				if (launchPath != null && launchPath.First() == '"' && launchPath.Last() == '"')
+					launchPath = launchPath.Substring(1, launchPath.Length - 2);
+
+				if (launchPath == null)
+				{
+					// When launching the assembly directly we must propagate the Engine.EngineDir argument if defined
+					// Platform-specific launchers are expected to manage this internally.
+					launchPath = Assembly.GetEntryAssembly().Location;
+					if (!string.IsNullOrEmpty(engineDirArg))
+						launchArgs.Add("Engine.EngineDir=\"" + engineDirArg + "\"");
+				}
+
+				ExternalMods.Register(Mods[modID], launchPath, launchArgs, ModRegistration.User);
+
+				if (ExternalMods.TryGetValue(ExternalMod.MakeKey(Mods[modID]), out var activeMod))
+					ExternalMods.ClearInvalidRegistrations(activeMod, ModRegistration.User);
+			}
+
+			Console.WriteLine("External mods:");
+			foreach (var mod in ExternalMods)
+				Console.WriteLine("\t{0}: {1} ({2})", mod.Key, mod.Value.Title, mod.Value.Version);
+
+			InitializeMod(modID, args, assemblies);
+			Ui.InitializeTranslation();
+		}
+
+		private static (string PlatformName, IPlatform Platform) GetPlatform()
+		{
+			var platforms = new[] { Settings.Game.Platform, "Default", null };
+			foreach (var p in platforms)
+			{
+				if (p == null)
+					throw new InvalidOperationException("Failed to initialize platform-integration library. Check graphics.log for details.");
+
+				try
+				{
+					var rendererPath = Path.Combine(Platform.BinDir, "OpenRA.Platforms." + p + ".dll");
+
+#if !MONO
+					var loader = new AssemblyLoader(rendererPath);
+					var platformType = loader.LoadDefaultAssembly().GetTypes().SingleOrDefault(t => typeof(IPlatform).IsAssignableFrom(t));
+
+#else
+					var assembly = Assembly.LoadFile(rendererPath);
+					var platformType = assembly.GetTypes().SingleOrDefault(t => typeof(IPlatform).IsAssignableFrom(t));
+#endif
+
+					if (platformType == null)
+						throw new InvalidOperationException("Platform dll must include exactly one IPlatform implementation.");
+
+					var platform = (IPlatform)platformType.GetConstructor(Type.EmptyTypes).Invoke(null);
+
+					return (p, platform);
+				}
+				catch (Exception e)
+				{
+					Log.Write("graphics", "{0}", e);
+					Console.WriteLine("Renderer initialization failed. Check graphics.log for details.");
+				}
+			}
+
+			return (null, null);
+		}
+
+		public static void InitializeMod(string mod, Arguments args, IList<Assembly> assemblies = null)
+		{
+			ClearModData();
 
 			if (mod == null)
 				throw new InvalidOperationException("Game.Mod argument missing.");
@@ -444,10 +565,13 @@ namespace OpenRA
 
 			Console.WriteLine("Loading mod: {0}", mod);
 
-			Sound.StopVideo();
+			ModData = new ModData(Mods[mod], Mods, assemblies, true);
 
-			ModData = new ModData(Mods[mod], Mods, true);
+			LaunchMod(args);
+		}
 
+		private static void LaunchMod(Arguments args)
+		{
 			LocalPlayerProfile = new LocalPlayerProfile(Path.Combine(Platform.SupportDir, Settings.Game.AuthProfile), ModData.Manifest.Get<PlayerDatabase>());
 
 			if (!ModData.LoadScreen.BeforeLoad())
@@ -476,6 +600,33 @@ namespace OpenRA
 			JoinLocal();
 
 			ModData.LoadScreen.StartGame(args);
+		}
+
+		private static void ClearModData()
+		{
+			// Clear static state if we have switched mods
+			LobbyInfoChanged = () => { };
+			ConnectionStateChanged = (om, p, conn) => { };
+			BeforeGameStart = () => { };
+			OnRemoteDirectConnect = endpoint => { };
+			delayedActions = new ActionQueue();
+
+			Ui.ResetAll();
+
+			worldRenderer?.Dispose();
+			worldRenderer = null;
+			server?.Shutdown();
+			OrderManager?.Dispose();
+
+			if (ModData != null)
+			{
+				ModData.ModFiles.UnmountAll();
+				ModData.Dispose();
+			}
+
+			Sound.StopVideo();
+
+			ModData = null;
 		}
 
 		public static void LoadEditor(string mapUid)

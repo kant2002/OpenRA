@@ -50,13 +50,13 @@ namespace OpenRA
 		readonly Lazy<IReadOnlyDictionary<string, SequenceProvider>> defaultSequences;
 		public IReadOnlyDictionary<string, SequenceProvider> DefaultSequences => defaultSequences.Value;
 
-		public ModData(Manifest mod, InstalledMods mods, bool useLoadScreen = false)
+		public ModData(Manifest mod, InstalledMods mods, IList<System.Reflection.Assembly> assemblyList = null, bool useLoadScreen = false)
 		{
 			Languages = new string[0];
 
 			// Take a local copy of the manifest
 			Manifest = new Manifest(mod.Id, mod.Package);
-			ObjectCreator = new ObjectCreator(Manifest, mods);
+			ObjectCreator = new ObjectCreator(Manifest, mods, assemblyList);
 			PackageLoaders = ObjectCreator.GetLoaders<IPackageLoader>(Manifest.PackageFormats, "package");
 
 			ModFiles = new FS(mod.Id, mods, PackageLoaders);

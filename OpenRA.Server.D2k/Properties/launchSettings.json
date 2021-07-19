@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "OpenRA.Server.D2k": {
+      "commandName": "Project",
+      "commandLineArgs": "Engine.EngineDir=\"..\" Game.Mod=d2k",
+      "workingDirectory": "..\\"
+    }
+  }
+}
